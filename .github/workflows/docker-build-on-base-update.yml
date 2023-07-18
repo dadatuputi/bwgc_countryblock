@@ -110,3 +110,7 @@ jobs:
         # against the sigstore community Fulcio instance.
         run: echo "${{ steps.meta.outputs.tags }}" | xargs -I {} cosign sign {}@${{ steps.build-and-push.outputs.digest }}
         if: ${{ github.event_name != 'pull_request' && steps.baseupdatecheck.outputs.differs == 'true' }}
+
+      # Keep repo alive with dummy commits: https://github.com/marketplace/actions/keepalive-workflow
+      - name: Keepalive
+        uses: gautamkrishnar/keepalive-workflow@v1 # using the workflow with default settings
