@@ -1,0 +1,53 @@
+name: Detect docker base image updates
+
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+on:
+  schedule:
+    - cron: '15 3 * * *'
+  workflow_dispatch:
+
+
+jobs:
+
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # for Keepalive
+    outputs:
+      differs: ${{ steps.baseupdatecheck.outputs.differs }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Keep repo alive with dummy commits: https://github.com/marketplace/actions/keepalive-workflow
+      - name: Keepalive
+        uses: gautamkrishnar/keepalive-workflow@v1
+
+      - name: Get Image Names
+        run: |
+          echo "IMAGE_BASE=docker://$(cat Dockerfile | gawk 'match($0, /^FROM\s+(.+)$/, groups) {print groups[1]}')" | tee -a $GITHUB_ENV
+          echo "IMAGE_DERIVED=docker://ghcr.io/${GITHUB_REPOSITORY}:master" | tee -a $GITHUB_ENV
+
+      - name: Docker Image Update Checker
+        id: baseupdatecheck
+        uses: ClementTsang/docker-check-base-image-diff@v0.0.2
+        with:
+          base-image: ${{ env.IMAGE_BASE }}
+          derived-image: ${{ env.IMAGE_DERIVED }}
+
+  call-build:
+    needs: check
+    if: needs.check.outputs.differs == 'true'
+    secrets: inherit
+    uses: ./.github/workflows/build-docker-image.yml
+    permissions:
+      contents: read
+      packages: write
+      # This is used to complete the identity challenge
+      # with sigstore/fulcio when running outside of PRs.
+      id-token: write
