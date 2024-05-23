@@ -9,6 +9,7 @@
 
 LOG=/var/log/block.log
 CHAIN=countryblock
+IPTABLES=iptables-legacy
 
 # The list of country codes is provided as an environment variable or below
 # COUNTRIES=
@@ -21,9 +22,9 @@ FORWARD_RULE="FORWARD -j $CHAIN"
 
 setup() {
 	# Create chain and RETURN and FORWARD rules
-	iptables -N $CHAIN
-	iptables -A $CHAIN -j RETURN
-	iptables -I $FORWARD_RULE
+	$IPTABLES -N $CHAIN
+	$IPTABLES -A $CHAIN -j RETURN
+	$IPTABLES -I $FORWARD_RULE
 
 	for country in $COUNTRIES; do
 		COUNTRY_LOWER=${country,,}
@@ -32,7 +33,7 @@ setup() {
 		ipset -exist create $COUNTRY_LOWER hash:net
 		
 		# Create firewall rule for each country
-		iptables -I $CHAIN -m set --match-set $COUNTRY_LOWER src -j DROP
+		$IPTABLES -I $CHAIN -m set --match-set $COUNTRY_LOWER src -j DROP
 	done
 	printf "Created %b chain and rules and ipsets for countries %b\n" "$CHAIN" "$COUNTRIES" >> $LOG
 	
@@ -41,9 +42,9 @@ setup() {
 cleanup() {
 
 	# Clean up old rules
-	iptables -D $FORWARD_RULE
-	iptables -F $CHAIN
-	iptables -X $CHAIN
+	$IPTABLES -D $FORWARD_RULE
+	$IPTABLES -F $CHAIN
+	$IPTABLES -X $CHAIN
 
 	# Flush ipsets
         for country in $COUNTRIES; do
@@ -65,7 +66,7 @@ update() {
 		wget --no-check-certificate -N https://www.ipdeny.com/ipblocks/data/aggregated/$ZONEFILE
 		printf "Downloaded zone file for %b\n" "$country" >> $LOG
 	
-		# Add each IP address from the downloaded list into the ipset 'china'
+		# Add each IP address from the downloaded list into the ipset
 		for i in $(cat $ZONEFILE ); do ipset -exist -A $COUNTRY_LOWER $i; done
 		printf "Added %b subnets to %b ipset\n" "$(wc -l $ZONEFILE)" "$country" >> $LOG
 
