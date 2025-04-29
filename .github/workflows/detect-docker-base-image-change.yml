@@ -5,50 +5,66 @@ on:
     - cron: '15 3 * * *'
   workflow_dispatch:
 
-
 jobs:
-
   check-update:
     runs-on: ubuntu-latest
     permissions:
-      actions: write  # for Keepalive
+      contents: write
     outputs:
-      needs-updating: ${{ steps.check.outputs.needs-updating }}
-
+      base_image: ${{ steps.get_images.outputs.base_image }}
+      derived_image: ${{ steps.get_images.outputs.derived_image }}
+      needs_updating: ${{ steps.check.outputs.needs-updating }}
+      diff_images: ${{ steps.check.outputs.diff-images }}
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      # Keep repo alive: https://github.com/marketplace/actions/keepalive-workflow
-      - name: Keepalive
-        uses: gautamkrishnar/keepalive-workflow@v2
-
+        
       - name: Get Image Names
-        id: images
+        id: get_images
         run: |
-          echo "IMAGE_BASE=$(grep "^FROM" Dockerfile | head -n 1 | sed 's/^FROM\s\+//')" | tee -a $GITHUB_ENV
-          echo "IMAGE_DERIVED=ghcr.io/${GITHUB_REPOSITORY}:master" | tee -a $GITHUB_ENV
+          echo "base_image=$(grep "^FROM" Dockerfile | head -n 1 | sed 's/^FROM\s\+//')" >> $GITHUB_OUTPUT
+          echo "derived_image=ghcr.io/${GITHUB_REPOSITORY}:master" >> $GITHUB_OUTPUT
 
       - name: Check if update available
         id: check
         uses: lucacome/docker-image-update-checker@v2.0.0
         with:
-          base-image: ${{ env.IMAGE_BASE }}
-          image: ${{ env.IMAGE_DERIVED }}
-
-      # Debug step to see the output
-      - name: Debug Output
+          base-image: ${{ steps.get_images.outputs.base_image }}
+          image: ${{ steps.get_images.outputs.derived_image }}
+      
+      - name: Update changelog
         run: |
-          echo "Differs output: ${{ steps.check.outputs.needs-updating }}"
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          BASE_IMAGE="${{ steps.get_images.outputs.base_image }}"
+          NEEDS_UPDATE="${{ steps.check.outputs.needs-updating }}"
+          
+          # Create changelog file if it doesn't exist
+          if [ ! -f "DOCKER_CHANGELOG.md" ]; then
+            echo "# Docker Base Image Check Changelog" > DOCKER_CHANGELOG.md
+            echo "" >> DOCKER_CHANGELOG.md
+          fi
+          
+          # Create log entry
+          if [ "$NEEDS_UPDATE" == "true" ]; then          
+            echo "* $TIMESTAMP: Base image $BASE_IMAGE updated: ${{ steps.check.outputs.diff-images }}" >> DOCKER_CHANGELOG.md
+          else
+            echo "* $TIMESTAMP: No change to base image $BASE_IMAGE" >> DOCKER_CHANGELOG.md
+          fi
+      
+      - name: Commit and push changelog
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git add DOCKER_CHANGELOG.md
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update Docker base image changelog" && git push)
 
   call-build:
     needs: check-update
-    if: needs.check-update.outputs.needs-updating == 'true'
+    if: needs.check-update.outputs.needs_updating == 'true'
     secrets: inherit
     uses: ./.github/workflows/build-docker-image.yml
     permissions:
       contents: read
       packages: write
-      # This is used to complete the identity challenge
-      # with sigstore/fulcio when running outside of PRs.
       id-token: write
