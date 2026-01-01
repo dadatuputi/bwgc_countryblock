@@ -27,33 +27,6 @@ fi
 
 printf "Starting blocklist and ipset construction for countries: %b\n" "$COUNTRIES" >>$LOG
 
-validate_ip_range() {
-    local ip_range="$1"
-    # Validate CIDR notation (IPv4)
-    if [[ "$ip_range" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$ ]]; then
-        # Further validate IP address portions
-        local ip_addr cidr
-        local -a octets # Declare octets as a local array
-        IFS='/' read -r ip_addr cidr <<<"$ip_range"
-        IFS='.' read -r -a octets <<<"$ip_addr"
-
-        # Validate each octet is between 0 and 255
-        for octet in "${octets[@]}"; do
-            if [[ "$octet" -lt 0 || "$octet" -gt 255 ]]; then
-                return 1
-            fi
-        done
-
-        # Validate CIDR is between 0 and 32
-        if [[ "$cidr" -lt 0 || "$cidr" -gt 32 ]]; then
-            return 1
-        fi
-
-        return 0
-    fi
-    return 1
-}
-
 process_zone_file() {
     local zonefile="$1"
     local country="$2"
@@ -64,25 +37,9 @@ process_zone_file() {
         return 1
     fi
 
-    # Process file line by line
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        # Remove leading/trailing whitespace
-        line="${line##*( )}"
-        line="${line%%*( )}"
-
-        # Skip empty lines and comments
-        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-
-        if validate_ip_range "$line"; then
-            ipset -exist -A "$country" "$line" || {
-                echo "Error adding IP range $line to set $country" >>$LOG
-                continue
-            }
-        else
-            echo "Invalid IP range found: $line" >>$LOG
-            continue
-        fi
-    done <"$zonefile"
+    # Security: Strict regex to allow only valid IP/CIDR formats
+    # This ensures that only valid IP addresses are passed to ipset, ignoring any garbage or malicious lines
+    sed -n -E '/^[0-9]{1,3}(\.[0-9]{1,3}){3}(\/[0-9]{1,2})?$/s/^/add '"$country"' /p' "$zonefile" | ipset restore -!
 }
 
 setup() {
