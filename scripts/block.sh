@@ -106,10 +106,11 @@ setup() {
 
 cleanup() {
     # Clean up old rules
-    $IPTABLES -D INPUT -j $CHAIN 2>/dev/null
-    $IPTABLES -D DOCKER-USER -j $CHAIN 2>/dev/null
-    $IPTABLES -F $CHAIN
-    $IPTABLES -X $CHAIN
+    $IPTABLES -w -F $CHAIN
+    while $IPTABLES -w -D INPUT -j $CHAIN 2>/dev/null; do :; done
+    while $IPTABLES -w -D DOCKER-USER -j $CHAIN 2>/dev/null; do :; done
+    while $IPTABLES -w -D FORWARD -j $CHAIN 2>/dev/null; do :; done
+    $IPTABLES -w -X $CHAIN
 
     # Flush ipsets
     for country in $COUNTRIES; do
