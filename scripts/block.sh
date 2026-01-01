@@ -27,9 +27,6 @@ fi
 
 printf "Starting blocklist and ipset construction for countries: %b\n" "$COUNTRIES" >>$LOG
 
-# Reused iptables rules
-FORWARD_RULE="INPUT 1 -j $CHAIN"
-
 validate_ip_range() {
     local ip_range="$1"
     # Validate CIDR notation (IPv4)
@@ -92,7 +89,8 @@ setup() {
     # Create chain and RETURN and FORWARD rules
     $IPTABLES -N $CHAIN
     $IPTABLES -A $CHAIN -j RETURN
-    $IPTABLES -I $FORWARD_RULE
+    $IPTABLES -I INPUT 1 -j $CHAIN
+    $IPTABLES -I DOCKER-USER 1 -j $CHAIN
 
     for country in $COUNTRIES; do
 
@@ -108,7 +106,8 @@ setup() {
 
 cleanup() {
     # Clean up old rules
-    $IPTABLES -D $FORWARD_RULE
+    $IPTABLES -D INPUT -j $CHAIN 2>/dev/null
+    $IPTABLES -D DOCKER-USER -j $CHAIN 2>/dev/null
     $IPTABLES -F $CHAIN
     $IPTABLES -X $CHAIN
 
