@@ -64,25 +64,13 @@ process_zone_file() {
         return 1
     fi
 
-    # Process file line by line
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        # Remove leading/trailing whitespace
-        line="${line##*( )}"
-        line="${line%%*( )}"
-
-        # Skip empty lines and comments
-        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-
+    # Validate and add each IP range to ipset
+    # This prevents injection of malicious or malformed data into ipset
+    while IFS= read -r line; do
         if validate_ip_range "$line"; then
-            ipset -exist -A "$country" "$line" || {
-                echo "Error adding IP range $line to set $country" >>$LOG
-                continue
-            }
-        else
-            echo "Invalid IP range found: $line" >>$LOG
-            continue
+            echo "add $country $line"
         fi
-    done <"$zonefile"
+    done <"$zonefile" | ipset restore -!
 }
 
 setup() {
