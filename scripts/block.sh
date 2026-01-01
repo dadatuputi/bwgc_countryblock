@@ -130,7 +130,13 @@ update() {
         local zonefile_name="${country,,}-aggregated.zone"
         local zonefile_remote="https://www.ipdeny.com/ipblocks/data/aggregated/${zonefile_name}"
         local zonefile="/tmp/${zonefile_name}"
-        curl $zonefile_remote -o $zonefile -z $zonefile
+
+        if [[ -f "$zonefile" ]]; then
+            curl $zonefile_remote -o $zonefile -z $zonefile
+        else
+            curl $zonefile_remote -o $zonefile
+        fi
+
         printf "Downloaded %b zone file %b to %b\n" "$country" "$zonefile_remote" "$zonefile" >>$LOG
 
         # Add each IP address from the downloaded list into the ipset
