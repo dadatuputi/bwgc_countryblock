@@ -4,33 +4,27 @@ Docker container that blocks IPs from specified countries from accessing the hos
 
 # Container Requirements
 
-* Capabilities (`cap_add`):
-  * `NET_ADMIN`
-  * `NET_RAW`
-* `privileged: true`
-* `network_mode: "host"`
-
+- Capabilities (`cap_add`):
+  - `NET_ADMIN`
+  - `NET_RAW`
+- `privileged: true`
+- `network_mode: "host"`
 
 # Environmental Variables
 
-| Environmental Variable | Description                                                                 |
-| ---------------------- | --------------------------------------------------------------------------- |
-| COUNTRIES              | Space separated list of countries' ISO 3166-1 alpha-2 code (e.g., CN HK AU) |
-| COUNTRYBLOCK_SCHEDULE  | Cron expression for when to update the IP block list (e.g., 0 0 \* \* \*)   |
+| Environmental Variable | Description                                                                               |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| COUNTRIES              | Space separated list of countries' ISO 3166-1 alpha-2 code (e.g., CN HK AU)               |
+| COUNTRYBLOCK_SCHEDULE  | Cron expression for when to update the IP block list (e.g., 0 0 \* \* \*)                 |
 | IPTABLES               | Command to use for iptables (e.g. `iptables`, `iptables-legacy`). Defaults to `iptables`. |
-| TZ                     | Timezone, optional                                                          |
+| TZ                     | Timezone, optional                                                                        |
 
 # Migration from iptables-legacy
 
-If you previously used this container with `iptables-legacy` (or if your host system had rules created by `iptables-legacy`), and you are switching to `iptables` (nf_tables), you must clean up the old rules on your host to avoid conflicts.
+The container automatically handles migration between `iptables-legacy` and `iptables` (nf_tables). When the container starts:
 
-Run the following commands on your host machine:
+- If no `IPTABLES` environment variable is set, it auto-detects which implementation is in use on your host
+- It automatically cleans up any conflicting rules from the other implementation
+- This ensures seamless migration without manual intervention
 
-\`\`\`bash
-# Remove all references to countryblock in INPUT chain
-while sudo iptables-legacy -D INPUT -j countryblock 2>/dev/null; do :; done
-
-# Flush and delete the countryblock chain
-sudo iptables-legacy -F countryblock 2>/dev/null
-sudo iptables-legacy -X countryblock 2>/dev/null
-\`\`\`
+If you prefer to explicitly set which implementation to use, you can set the `IPTABLES` environment variable to either `iptables` or `iptables-legacy`.

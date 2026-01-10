@@ -27,6 +27,35 @@ fi
 
 printf "Starting blocklist and ipset construction for countries: %b\n" "$COUNTRIES" >>$LOG
 
+cleanup_conflicting_rules() {
+    # Clean up rules from the opposite iptables implementation to avoid conflicts
+    local other_iptables
+
+    if [ "$IPTABLES" = "iptables" ]; then
+        other_iptables="iptables-legacy"
+    else
+        other_iptables="iptables"
+    fi
+
+    # Check if the other iptables implementation has conflicting rules
+    if command -v $other_iptables >/dev/null 2>&1; then
+        if $other_iptables -n -L $CHAIN >/dev/null 2>&1; then
+            printf "Detected conflicting %s chain in %s, cleaning up...\n" "$CHAIN" "$other_iptables" >>$LOG
+
+            # Remove references to countryblock chain
+            while $other_iptables -w -D INPUT -j $CHAIN 2>/dev/null; do :; done
+            while $other_iptables -w -D DOCKER-USER -j $CHAIN 2>/dev/null; do :; done
+            while $other_iptables -w -D FORWARD -j $CHAIN 2>/dev/null; do :; done
+
+            # Flush and delete the chain
+            $other_iptables -w -F $CHAIN 2>/dev/null
+            $other_iptables -w -X $CHAIN 2>/dev/null
+
+            printf "Cleaned up conflicting %s rules from %s\n" "$CHAIN" "$other_iptables" >>$LOG
+        fi
+    fi
+}
+
 validate_ip_range() {
     local ip_range="$1"
     # Validate CIDR notation (IPv4)
@@ -141,6 +170,8 @@ update() {
 if [ "$1" == "start" ]; then
     # Clean up old rules if they exist in case last run crashed
     cleanup
+    # Clean up any conflicting rules from the other iptables implementation
+    cleanup_conflicting_rules
     setup
     update
 
