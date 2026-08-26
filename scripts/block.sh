@@ -16,8 +16,15 @@ IPTABLES=iptables-legacy
 
 printf "Starting blocklist and ipset construction for countries: %b\n" "$COUNTRIES" >> $LOG
 
-# Reused iptables rules
-FORWARD_RULE="INPUT 1 -j $CHAIN"
+# The jump that sends INPUT traffic into our chain.
+#
+# Kept as a rule SPEC only, with no position. -I takes a position, -D does not:
+# "iptables -D INPUT 1 -j countryblock" is not a delete-by-number with extra
+# detail, it is a syntax error ("Illegal option `--jump' with this command"),
+# and it exits 2 without removing anything. Sharing one string between the two
+# is what let the jumps accumulate.
+JUMP_SPEC="-j $CHAIN"
+JUMP_POSITION=1
 
 validate_ip_range() {
     local ip_range="$1"
@@ -79,10 +86,15 @@ process_zone_file() {
 
 
 setup() {
-    # Create chain and RETURN and FORWARD rules
-    $IPTABLES -N $CHAIN
-    $IPTABLES -A $CHAIN -j RETURN
-    $IPTABLES -I $FORWARD_RULE
+    # Create the chain if it is not already there.
+    $IPTABLES -N $CHAIN 2>/dev/null || true
+    $IPTABLES -C $CHAIN -j RETURN 2>/dev/null || $IPTABLES -A $CHAIN -j RETURN
+
+    # Insert the jump only when it is absent. Without the -C guard every
+    # container start adds another copy.
+    if ! $IPTABLES -C INPUT $JUMP_SPEC 2>/dev/null; then
+        $IPTABLES -I INPUT $JUMP_POSITION $JUMP_SPEC
+    fi
 
     for country in $COUNTRIES; do
 
@@ -97,10 +109,19 @@ setup() {
 }
 
 cleanup() {
-    # Clean up old rules
-    $IPTABLES -D $FORWARD_RULE
-    $IPTABLES -F $CHAIN
-    $IPTABLES -X $CHAIN
+    # Remove every jump, not just one. Instances leaked by earlier versions
+    # accumulate, and -X refuses to delete a chain that is still referenced.
+    removed=0
+    while $IPTABLES -C INPUT $JUMP_SPEC 2>/dev/null; do
+        $IPTABLES -D INPUT $JUMP_SPEC || break
+        removed=$((removed + 1))
+    done
+    if [[ $removed -gt 1 ]]; then
+        printf "Removed %d duplicate %b jumps left by earlier runs\n" "$removed" "$CHAIN" >> $LOG
+    fi
+
+    $IPTABLES -F $CHAIN 2>/dev/null || true
+    $IPTABLES -X $CHAIN 2>/dev/null || true
 
     # Flush ipsets
     for country in $COUNTRIES; do
@@ -141,8 +162,11 @@ if [ "$1" == "start" ]; then
     update
 
     # Sleep indefinitely waiting for SIGTERM
-    printf "$0: waiting for SIGINT SIGTERM or SIGKILL to clean up\n" >> $LOG
-    trap "cleanup && exit 0" SIGINT SIGTERM SIGKILL
+    # SIGKILL cannot be trapped -- listing it here only implied that a hard
+    # kill would clean up. It does not, which is why setup and cleanup must
+    # both be idempotent rather than relying on this firing.
+    printf "$0: waiting for SIGINT or SIGTERM to clean up\n" >> $LOG
+    trap "cleanup; exit 0" SIGINT SIGTERM EXIT
     sleep inf &
     wait
 
