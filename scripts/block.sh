@@ -21,8 +21,7 @@ printf "Starting blocklist and ipset construction for countries: %b\n" "$COUNTRI
 # Kept as a rule SPEC only, with no position. -I takes a position, -D does not:
 # "iptables -D INPUT 1 -j countryblock" is not a delete-by-number with extra
 # detail, it is a syntax error ("Illegal option `--jump' with this command"),
-# and it exits 2 without removing anything. Sharing one string between the two
-# is what let the jumps accumulate.
+# and it exits 2 without removing anything.
 JUMP_SPEC="-j $CHAIN"
 JUMP_POSITION=1
 
@@ -162,9 +161,6 @@ if [ "$1" == "start" ]; then
     update
 
     # Sleep indefinitely waiting for SIGTERM
-    # SIGKILL cannot be trapped -- listing it here only implied that a hard
-    # kill would clean up. It does not, which is why setup and cleanup must
-    # both be idempotent rather than relying on this firing.
     printf "$0: waiting for SIGINT or SIGTERM to clean up\n" >> $LOG
     trap "cleanup; exit 0" SIGINT SIGTERM EXIT
     sleep inf &
