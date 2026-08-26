@@ -9,19 +9,40 @@
 
 LOG=/var/log/block.log
 CHAIN=countryblock
-IPTABLES=iptables-legacy
+# Returns the iptables backend the host is using. Docker creates its own chains
+# in whichever backend is live, so their presence identifies it. Rules written
+# to the other backend are accepted but never consulted.
+#
+# Set IPTABLES to override.
+detect_iptables() {
+    if [ -n "${IPTABLES:-}" ]; then
+        printf '%s' "$IPTABLES"
+        return
+    fi
+    for candidate in iptables-nft iptables-legacy; do
+        if command -v "$candidate" >/dev/null 2>&1 \
+           && "$candidate" -S 2>/dev/null | grep -q '^-N DOCKER'; then
+            printf '%s' "$candidate"
+            return
+        fi
+    done
+    # No Docker chains in either backend; fall back rather than guess.
+    printf 'iptables-legacy'
+}
+
+IPTABLES=$(detect_iptables)
 
 # The list of country codes is provided as an environment variable or below
 #COUNTRIES=""
 
 printf "Starting blocklist and ipset construction for countries: %b\n" "$COUNTRIES" >> $LOG
+printf "Using iptables backend: %b\n" "$IPTABLES" >> $LOG
 
 # The jump that sends INPUT traffic into our chain.
 #
-# Kept as a rule SPEC only, with no position. -I takes a position, -D does not:
-# "iptables -D INPUT 1 -j countryblock" is not a delete-by-number with extra
-# detail, it is a syntax error ("Illegal option `--jump' with this command"),
-# and it exits 2 without removing anything.
+# A rule spec with no position: -I takes a position, -D does not. Combining
+# them ("-D INPUT 1 -j countryblock") is a syntax error that exits 2 without
+# removing anything.
 JUMP_SPEC="-j $CHAIN"
 JUMP_POSITION=1
 
@@ -108,8 +129,8 @@ setup() {
 }
 
 cleanup() {
-    # Remove every jump, not just one. Instances leaked by earlier versions
-    # accumulate, and -X refuses to delete a chain that is still referenced.
+    # Remove every jump: -X refuses to delete a chain that is still referenced,
+    # and duplicates accumulate if any are left.
     removed=0
     while $IPTABLES -C INPUT $JUMP_SPEC 2>/dev/null; do
         $IPTABLES -D INPUT $JUMP_SPEC || break

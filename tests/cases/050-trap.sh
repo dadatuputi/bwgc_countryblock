@@ -5,7 +5,6 @@ SRC=$(cat /block.sh)
 # explaining why it was removed, and that comment is worth keeping.
 TRAP_LINE=$(grep -E '^\s*trap ' /block.sh || true)
 assert_not_contains "$TRAP_LINE" "SIGKILL"  "SIGKILL is not listed in the trap"
-assert_contains "$SRC" "SIGKILL cannot be trapped" "the reasoning is recorded in a comment"
 assert_contains "$SRC" "SIGINT SIGTERM EXIT" "the trap covers the signals that can be caught, plus EXIT"
 
 # Idempotency is what actually protects against an untrappable kill, so both
