@@ -1,0 +1,132 @@
+name: Rebuild when the base image or its packages change
+
+# Replaces the detect-base-image-change workflow, which had two problems.
+#
+# It only compared the BASE IMAGE digest, so package-level security updates
+# inside an unchanged base were invisible. When this workflow was written, the
+# published images were carrying openssl 3.5.7 against an available 3.5.8, plus
+# curl, libldap and c-ares updates, none of which the digest comparison saw.
+#
+# And it committed a changelog line every single day whether anything had
+# changed or not -- roughly 365 commits a year of noise. That was not
+# gratuitous: GitHub disables scheduled workflows in a public repository after
+# 60 days with no activity, so the daily commit was keeping the cron alive. The
+# keepalive job below does the same thing about seven times a year instead, and
+# only when a real rebuild has not already reset the clock.
+
+on:
+  schedule:
+    - cron: '15 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      needs_build: ${{ steps.decide.outputs.needs_build }}
+      reason: ${{ steps.decide.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compare base image and package state
+        id: decide
+        run: |
+          set -uo pipefail
+          BASE=$(grep -m1 '^FROM' Dockerfile | sed 's/^FROM[[:space:]]*//')
+          PUBLISHED="ghcr.io/${GITHUB_REPOSITORY,,}:master"
+          echo "base=$BASE published=$PUBLISHED"
+
+          REASON=""
+
+          # 1. Has the base image moved under us?
+          docker pull -q "$BASE" >/dev/null 2>&1 || true
+          if docker pull -q "$PUBLISHED" >/dev/null 2>&1; then
+            BASE_ID=$(docker image inspect "$BASE" --format '{{index .RootFS.Layers 0}}' 2>/dev/null || echo unknown)
+            PUB_ID=$(docker image inspect "$PUBLISHED" --format '{{index .RootFS.Layers 0}}' 2>/dev/null || echo unknown)
+            if [ "$BASE_ID" != "$PUB_ID" ] || [ "$BASE_ID" = unknown ]; then
+              REASON="base image changed"
+            fi
+
+            # 2. Are any installed packages behind the repository index?
+            #    This is the case the old digest comparison could not see.
+            OUTDATED=$(docker run --rm --entrypoint sh "$PUBLISHED" -c \
+              "apk update >/dev/null 2>&1; apk version -l '<' 2>/dev/null | tail -n +2" || true)
+            if [ -n "$OUTDATED" ]; then
+              COUNT=$(printf '%s\n' "$OUTDATED" | grep -c . || true)
+              echo "Outdated packages:"; printf '%s\n' "$OUTDATED"
+              if [ -n "$REASON" ]; then
+                REASON="$REASON; $COUNT package(s) outdated"
+              else
+                REASON="$COUNT package(s) outdated"
+              fi
+            fi
+          else
+            REASON="no published image yet"
+          fi
+
+          if [ -n "$REASON" ]; then
+            echo "needs_build=true" >> "$GITHUB_OUTPUT"
+            echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+            echo "::notice::Rebuilding: $REASON"
+          else
+            echo "needs_build=false" >> "$GITHUB_OUTPUT"
+            echo "reason=nothing to do" >> "$GITHUB_OUTPUT"
+            echo "::notice::Base image and packages are current; not rebuilding"
+          fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.needs_build == 'true'
+    uses: ./.github/workflows/build-docker-image.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+
+  keepalive:
+    # Only when nothing was rebuilt: a real build pushes and resets the clock
+    # on its own, so this fires only during genuinely quiet stretches.
+    needs: check
+    if: needs.check.outputs.needs_build == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Commit only if the schedule is about to be disabled
+        run: |
+          set -euo pipefail
+          LAST=$(git log -1 --format=%ct)
+          AGE_DAYS=$(( ( $(date +%s) - LAST ) / 86400 ))
+          echo "Last repository commit was $AGE_DAYS days ago."
+
+          # GitHub disables scheduled workflows in public repositories after 60
+          # days without activity. Act at 50 to leave a margin for a run that
+          # fails or is skipped.
+          if [ "$AGE_DAYS" -lt 50 ]; then
+            echo "Nothing to do; the schedule is in no danger."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: keep scheduled workflows enabled
+
+          GitHub disables scheduled workflows in a public repository after 60
+          days with no activity. The last commit was $AGE_DAYS days ago, so this
+          empty commit resets that clock. No files are changed."
+          git push
