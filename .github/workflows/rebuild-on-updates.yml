@@ -51,11 +51,17 @@ jobs:
           # 1. Has the base image moved under us?
           docker pull -q "$BASE" >/dev/null 2>&1 || true
           if docker pull -q "$PUBLISHED" >/dev/null 2>&1; then
-            BASE_ID=$(docker image inspect "$BASE" --format '{{index .RootFS.Layers 0}}' 2>/dev/null || echo unknown)
-            PUB_ID=$(docker image inspect "$PUBLISHED" --format '{{index .RootFS.Layers 0}}' 2>/dev/null || echo unknown)
-            if [ "$BASE_ID" != "$PUB_ID" ] || [ "$BASE_ID" = unknown ]; then
-              REASON="base image changed"
-            fi
+            # The published image is the base plus this repository's own layers,
+            # so every base layer must appear, in order, at the start of it.
+            # Comparing only the first layer misses a base whose upper layers
+            # change on their own, such as a new application release on an
+            # unchanged Alpine layer. An unreadable base forces a rebuild.
+            BASE_LAYERS=$(docker image inspect "$BASE" --format '{{range .RootFS.Layers}}{{.}} {{end}}' 2>/dev/null || true)
+            PUB_LAYERS=$(docker image inspect "$PUBLISHED" --format '{{range .RootFS.Layers}}{{.}} {{end}}' 2>/dev/null || true)
+            case "$PUB_LAYERS" in
+              "$BASE_LAYERS"*) [ -n "$BASE_LAYERS" ] || REASON="base image changed" ;;
+              *) REASON="base image changed" ;;
+            esac
 
             # 2. Are any installed packages behind the repository index?
             #    This is the case the old digest comparison could not see.
