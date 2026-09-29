@@ -29,10 +29,10 @@ jobs:
       needs_build: ${{ steps.decide.outputs.needs_build }}
       reason: ${{ steps.decide.outputs.reason }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Log in to the registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -51,11 +51,17 @@ jobs:
           # 1. Has the base image moved under us?
           docker pull -q "$BASE" >/dev/null 2>&1 || true
           if docker pull -q "$PUBLISHED" >/dev/null 2>&1; then
-            BASE_ID=$(docker image inspect "$BASE" --format '{{index .RootFS.Layers 0}}' 2>/dev/null || echo unknown)
-            PUB_ID=$(docker image inspect "$PUBLISHED" --format '{{index .RootFS.Layers 0}}' 2>/dev/null || echo unknown)
-            if [ "$BASE_ID" != "$PUB_ID" ] || [ "$BASE_ID" = unknown ]; then
-              REASON="base image changed"
-            fi
+            # The published image is the base plus this repository's own layers,
+            # so every base layer must appear, in order, at the start of it.
+            # Comparing only the first layer misses a base whose upper layers
+            # change on their own, such as a new application release on an
+            # unchanged Alpine layer. An unreadable base forces a rebuild.
+            BASE_LAYERS=$(docker image inspect "$BASE" --format '{{range .RootFS.Layers}}{{.}} {{end}}' 2>/dev/null || true)
+            PUB_LAYERS=$(docker image inspect "$PUBLISHED" --format '{{range .RootFS.Layers}}{{.}} {{end}}' 2>/dev/null || true)
+            case "$PUB_LAYERS" in
+              "$BASE_LAYERS"*) [ -n "$BASE_LAYERS" ] || REASON="base image changed" ;;
+              *) REASON="base image changed" ;;
+            esac
 
             # 2. Are any installed packages behind the repository index?
             #    This is the case the old digest comparison could not see.
@@ -103,7 +109,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
