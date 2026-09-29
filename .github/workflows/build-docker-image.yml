@@ -43,6 +43,18 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # The action's default tags, plus one tag per master build that never
+          # moves (master-20260923-031500, UTC). "master" is republished on every
+          # rebuild; the dated tag keeps naming this exact build afterwards, so a
+          # deployment can pin it, roll back to it, or check that an image it
+          # pulled earlier is still the one published. A rebuild of the same
+          # commit gets a new tag, which a commit-SHA tag would not.
+          tags: |
+            type=schedule
+            type=ref,event=branch
+            type=ref,event=tag
+            type=ref,event=pr
+            type=raw,value={{branch}}-{{date 'YYYYMMDD-HHmmss'}},enable={{is_default_branch}}
 
       - name: Setup Docker buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
