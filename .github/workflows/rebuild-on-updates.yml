@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   check:
-    uses: dadatuputi/bwgc_workflows/.github/workflows/check-for-updates.yml@165cfe9ae2a7e781b53eb23f50a83042d5e6e8cd # unreleased, PR dadatuputi/bwgc_workflows#1
+    uses: dadatuputi/bwgc_workflows/.github/workflows/check-for-updates.yml@6793603145730d6d6900f0ceaab2b8daa6f507bd # v1.0.0
 
   build:
     needs: check
@@ -31,6 +31,6 @@ jobs:
     # on its own, so this fires only during genuinely quiet stretches.
     needs: check
     if: needs.check.outputs.needs_build == 'false'
-    uses: dadatuputi/bwgc_workflows/.github/workflows/keepalive.yml@165cfe9ae2a7e781b53eb23f50a83042d5e6e8cd # unreleased, PR dadatuputi/bwgc_workflows#1
+    uses: dadatuputi/bwgc_workflows/.github/workflows/keepalive.yml@6793603145730d6d6900f0ceaab2b8daa6f507bd # v1.0.0
     permissions:
       contents: write

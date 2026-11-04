@@ -27,7 +27,7 @@ on:
 
 jobs:
   build:
-    uses: dadatuputi/bwgc_workflows/.github/workflows/build-image.yml@165cfe9ae2a7e781b53eb23f50a83042d5e6e8cd # unreleased, PR dadatuputi/bwgc_workflows#1
+    uses: dadatuputi/bwgc_workflows/.github/workflows/build-image.yml@6793603145730d6d6900f0ceaab2b8daa6f507bd # v1.0.0
     with:
       test-image: bwgc_countryblock:test
     permissions:
