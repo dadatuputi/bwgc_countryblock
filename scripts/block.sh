@@ -38,7 +38,12 @@ IPTABLES=$(detect_iptables)
 printf "Starting blocklist and ipset construction for countries: %b\n" "$COUNTRIES" >> $LOG
 printf "Using iptables backend: %b\n" "$IPTABLES" >> $LOG
 
-# The jump that sends INPUT traffic into our chain.
+# The jump that sends traffic into our chain, from INPUT and DOCKER-USER.
+#
+# INPUT only sees traffic addressed to the host itself. Traffic to a port
+# published by a container on a bridge network is DNATed and routed through
+# FORWARD, so it never reaches INPUT. Docker passes that traffic through
+# DOCKER-USER first, the chain it reserves for user rules and never flushes.
 #
 # A rule spec with no position: -I takes a position, -D does not. Combining
 # them ("-D INPUT 1 -j countryblock") is a syntax error that exits 2 without
@@ -83,27 +88,63 @@ process_zone_file() {
         return 1
     fi
     
-    # Process file line by line
+    # Validate each line, then add all the valid ones with a single
+    # "ipset restore". Running "ipset add" per line forks a process per
+    # subnet, which is slow for countries with thousands of them.
+    local line
     while IFS= read -r line || [[ -n "$line" ]]; do
-        # Remove leading/trailing whitespace
-        line="${line##*( )}"
-        line="${line%%*( )}"
-        
+        # A subnet contains no whitespace, so strip all of it, including the
+        # \r of a CRLF file.
+        line="${line//[[:space:]]/}"
+
         # Skip empty lines and comments
-        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-        
+        [[ -z "$line" || "$line" == \#* ]] && continue
+
         if validate_ip_range "$line"; then
-            ipset -exist -A "$country" "$line" || {
-                echo "Error adding IP range $line to set $country" >> $LOG
-                continue
-            }
+            echo "add $country $line"
         else
             echo "Invalid IP range found: $line" >> $LOG
-            continue
         fi
-    done < "$zonefile"
+    done < "$zonefile" | ipset restore -exist || {
+        # ipset reports the offending line on stderr. Lines before it were
+        # still added.
+        echo "Error adding IP ranges from $zonefile to set $country" >> $LOG
+        return 1
+    }
 }
 
+# Earlier versions always wrote to iptables-legacy, and forks of this image
+# have used iptables-nft. When detection picks one backend, a chain left in the
+# other is not removed by cleanup. The kernel evaluates both backends, so that
+# chain keeps dropping whatever countries it was last given, and its references
+# to the country ipsets stop cleanup from destroying them.
+cleanup_other_backend() {
+    local other parent
+    for other in iptables-nft iptables-legacy; do
+        # An IPTABLES override such as plain "iptables" is one of these two
+        # under another name. Removing our chain from the active backend here
+        # is harmless: this only runs at start, before cleanup and setup.
+        [ "$other" = "$IPTABLES" ] && continue
+        command -v "$other" >/dev/null 2>&1 || continue
+        # Listing legacy rules loads its kernel modules and registers empty
+        # tables, after which every iptables-nft command on the host warns
+        # that legacy tables are present. Only look once legacy is in use.
+        if [ "$other" = iptables-legacy ] \
+           && ! grep -qx filter /proc/net/ip_tables_names 2>/dev/null; then
+            continue
+        fi
+        $other -S $CHAIN >/dev/null 2>&1 || continue
+
+        printf "Removing stale %b chain from %b\n" "$CHAIN" "$other" >> $LOG
+        for parent in INPUT DOCKER-USER; do
+            while $other -C $parent $JUMP_SPEC 2>/dev/null; do
+                $other -D $parent $JUMP_SPEC || break
+            done
+        done
+        $other -F $CHAIN
+        $other -X $CHAIN
+    done
+}
 
 setup() {
     # Create the chain if it is not already there.
@@ -114,6 +155,14 @@ setup() {
     # container start adds another copy.
     if ! $IPTABLES -C INPUT $JUMP_SPEC 2>/dev/null; then
         $IPTABLES -I INPUT $JUMP_POSITION $JUMP_SPEC
+    fi
+
+    # DOCKER-USER exists only once Docker has set up its rules in this
+    # backend. Without it there is no container traffic to filter here.
+    if ! $IPTABLES -S DOCKER-USER >/dev/null 2>&1; then
+        printf "No DOCKER-USER chain in %b, container traffic is not filtered\n" "$IPTABLES" >> $LOG
+    elif ! $IPTABLES -C DOCKER-USER $JUMP_SPEC 2>/dev/null; then
+        $IPTABLES -I DOCKER-USER $JUMP_POSITION $JUMP_SPEC
     fi
 
     for country in $COUNTRIES; do
@@ -139,6 +188,10 @@ cleanup() {
     if [[ $removed -gt 1 ]]; then
         printf "Removed %d duplicate %b jumps left by earlier runs\n" "$removed" "$CHAIN" >> $LOG
     fi
+    # -C fails when DOCKER-USER does not exist, so this is a no-op there.
+    while $IPTABLES -C DOCKER-USER $JUMP_SPEC 2>/dev/null; do
+        $IPTABLES -D DOCKER-USER $JUMP_SPEC || break
+    done
 
     $IPTABLES -F $CHAIN 2>/dev/null || true
     $IPTABLES -X $CHAIN 2>/dev/null || true
@@ -161,9 +214,30 @@ update() {
         local zonefile_name="${country,,}-aggregated.zone"
         local zonefile_remote="https://www.ipdeny.com/ipblocks/data/aggregated/${zonefile_name}"
         local zonefile="/tmp/${zonefile_name}"
-        curl $zonefile_remote -o $zonefile -z $zonefile
-        printf "Downloaded %b zone file %b to %b\n" "$country" "$zonefile_remote" "$zonefile" >> $LOG
-    
+        local partfile="${zonefile}.part"
+
+        # --fail: an HTTP error (404 for an unknown country code) must fail
+        # rather than save the error page as the zone file.
+        # Downloading to a separate file keeps the last good copy when the
+        # download fails, so the ipset is still rebuilt from it on start.
+        # -z skips the transfer when that copy is current; curl leaves the
+        # output file uncreated then. It warns when its file is missing, so it
+        # is only passed once there is one. --remote-time dates the file with
+        # the server's Last-Modified, which is what -z compares against.
+        local -a curl_opts=(--fail --silent --show-error --location --retry 3 --remote-time -o "$partfile")
+        [[ -f "$zonefile" ]] && curl_opts+=(-z "$zonefile")
+
+        rm -f "$partfile"
+        if ! curl "${curl_opts[@]}" "$zonefile_remote"; then
+            printf "Error: could not download %b zone file %b, keeping the previous one\n" "$country" "$zonefile_remote" >> $LOG
+        elif [[ -f "$partfile" ]]; then
+            mv "$partfile" "$zonefile"
+            printf "Downloaded %b zone file %b to %b\n" "$country" "$zonefile_remote" "$zonefile" >> $LOG
+        else
+            printf "%b zone file %b is unchanged\n" "$country" "$zonefile" >> $LOG
+        fi
+        rm -f "$partfile"
+
         # Add each IP address from the downloaded list into the ipset
         if [[ -f "$zonefile" ]]; then
             process_zone_file "$zonefile" "$country"
@@ -176,7 +250,9 @@ update() {
 }
 
 if [ "$1" == "start" ]; then
-    # Clean up old rules if they exist in case last run crashed
+    # Clean up old rules if they exist in case last run crashed. The other
+    # backend goes first so the ipsets it references can then be destroyed.
+    cleanup_other_backend
     cleanup
     setup
     update
