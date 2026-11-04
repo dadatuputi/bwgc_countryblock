@@ -159,4 +159,17 @@ jobs:
         if: github.event_name != 'pull_request'
         # This step uses the identity token to provision an ephemeral certificate
         # against the sigstore community Fulcio instance.
-        run: echo "${{ steps.meta.outputs.tags }}" | xargs -I {} cosign sign --yes {}@${{ steps.build-and-push.outputs.digest }}
+        #
+        # Every tag points at the same digest and the signature attaches to the
+        # digest, so one signature covers them all. A slow Rekor upload can make
+        # cosign's own retry hit 409 "equivalent entry already exists", so a failed
+        # attempt is tried again, each with a fresh ephemeral key.
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
+        run: |
+          for attempt in 1 2 3; do
+            cosign sign --yes "$IMAGE_REF" && exit 0
+            echo "::warning::cosign sign attempt $attempt failed"
+            sleep $((attempt * 15))
+          done
+          exit 1
