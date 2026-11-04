@@ -18,3 +18,8 @@ Docker container that blocks IPs from specified countries from accessing the hos
 | COUNTRIES              | Space separated list of countries' ISO 3166-1 alpha-2 code (e.g., CN HK AU) |
 | COUNTRYBLOCK_SCHEDULE  | Cron expression for when to update the IP block list (e.g., 0 0 \* \* \*)   |
 | TZ                     | Timezone, optional                                                          |
+
+
+# Credits
+
+[@Striffly](https://github.com/Striffly) found that published container ports bypassed the block (#10), and contributed the workflow hardening, the full base-layer comparison and the dated image tags (#11, #12, #13, landed as #14, #15, #16).
