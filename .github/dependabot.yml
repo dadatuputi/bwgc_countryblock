@@ -1,0 +1,10 @@
+# Keeps the pinned actions and the shared bwgc_workflows reference current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
