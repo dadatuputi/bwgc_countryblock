@@ -5,7 +5,10 @@
 # support.
 FROM alpine:3.24
 
-RUN apk --update --no-cache add ipset iptables iptables-legacy curl bash tzdata
+# apk upgrade first: the base image's own packages (apk-tools, for one) can lag
+# the repository index, and the nightly rebuild only helps if it brings them up
+# to date too.
+RUN apk upgrade --no-cache && apk add --no-cache ipset iptables iptables-legacy curl bash tzdata
 RUN ln -sf /proc/1/fd/1 /var/log/block.log
 
 COPY scripts/block_init.sh /

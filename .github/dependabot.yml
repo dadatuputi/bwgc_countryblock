@@ -8,3 +8,10 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+    # Third-party action releases wait three days before Dependabot proposes
+    # them, so a bad release has time to be noticed. Our own shared workflows
+    # are exempt: a new bwgc_workflows tag is proposed right away.
+    cooldown:
+      default-days: 3
+      exclude:
+        - "dadatuputi/bwgc_workflows*"
