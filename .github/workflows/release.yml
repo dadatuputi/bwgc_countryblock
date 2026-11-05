@@ -1,0 +1,110 @@
+name: Release
+
+# Tags every merged pull request as a release and publishes its image, so
+# the semver tags (1, 1.4, 1.4.2, latest) move without anyone tagging by hand.
+# Deployments follow the major tag, so pick the label with care:
+#   release:major  a deployment must change something to keep working
+#   release:minor  a new optional setting or capability
+#   release:none   no release (docs, tests or workflow-only changes)
+#   (no label)     patch
+# The first release is v1.0.0 whatever the label.
+#
+# Run it by hand to release whatever is on master that has not been tagged.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true &&
+       !contains(github.event.pull_request.labels.*.name, 'release:none'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.next }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Work out the next version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          BUMP_INPUT: ${{ inputs.bump }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then
+            BUMP="$BUMP_INPUT"
+          elif printf '%s' "$LABELS" | grep -q '"release:major"'; then
+            BUMP=major
+          elif printf '%s' "$LABELS" | grep -q '"release:minor"'; then
+            BUMP=minor
+          else
+            BUMP=patch
+          fi
+
+          HEAD=$(git rev-parse HEAD)
+          if git tag --points-at "$HEAD" | grep -q '^v[0-9]'; then
+            echo "master ($HEAD) is already tagged $(git tag --points-at "$HEAD" | head -1); nothing to release."
+            exit 0
+          fi
+
+          LAST=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+          if [ -z "$LAST" ]; then
+            NEXT=v1.0.0
+          else
+            IFS=. read -r MAJOR MINOR PATCH <<< "${LAST#v}"
+            case "$BUMP" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              *)     PATCH=$((PATCH + 1)) ;;
+            esac
+            NEXT="v$MAJOR.$MINOR.$PATCH"
+          fi
+          echo "${LAST:-none} -> $NEXT ($BUMP) at $HEAD"
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "sha=$HEAD" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and publish the release
+        if: steps.version.outputs.next != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXT: ${{ steps.version.outputs.next }}
+          SHA: ${{ steps.version.outputs.sha }}
+        run: gh release create "$NEXT" --target "$SHA" --title "$NEXT" --generate-notes
+
+  # A tag created with GITHUB_TOKEN starts no other workflow, so the tag push
+  # trigger in build-docker-image.yml never fires for it. Build it here.
+  build:
+    needs: release
+    if: needs.release.outputs.tag != ''
+    uses: ./.github/workflows/build-docker-image.yml
+    with:
+      ref: ${{ needs.release.outputs.tag }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
