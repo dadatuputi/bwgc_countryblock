@@ -13,8 +13,12 @@ permissions:
   contents: read
 
 jobs:
+  # Two images are kept current: master, which deployments on older
+  # bitwarden_gcloud releases still follow, and the newest release, whose
+  # major tag (e.g. :1) newer deployments follow. Each is checked and
+  # rebuilt on its own.
   check:
-    uses: dadatuputi/bwgc_workflows/.github/workflows/check-for-updates.yml@ba3db05fc13164ec7af87552ec32a316a5fa6708 # v1.0.1
+    uses: dadatuputi/bwgc_workflows/.github/workflows/check-for-updates.yml@1d54d36182bfc2058363dba6245978cb657aa49a # v1.1.0
 
   build:
     needs: check
@@ -26,11 +30,28 @@ jobs:
       id-token: write
       security-events: write
 
+  check-release:
+    uses: dadatuputi/bwgc_workflows/.github/workflows/check-for-updates.yml@1d54d36182bfc2058363dba6245978cb657aa49a # v1.1.0
+    with:
+      release: true
+
+  build-release:
+    needs: check-release
+    if: needs.check-release.outputs.needs_build == 'true'
+    uses: ./.github/workflows/build-docker-image.yml
+    with:
+      ref: ${{ needs.check-release.outputs.ref }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+
   keepalive:
     # Only when nothing was rebuilt: a real build pushes and resets the clock
     # on its own, so this fires only during genuinely quiet stretches.
-    needs: check
-    if: needs.check.outputs.needs_build == 'false'
-    uses: dadatuputi/bwgc_workflows/.github/workflows/keepalive.yml@ba3db05fc13164ec7af87552ec32a316a5fa6708 # v1.0.1
+    needs: [check, check-release]
+    if: needs.check.outputs.needs_build == 'false' && needs.check-release.outputs.needs_build == 'false'
+    uses: dadatuputi/bwgc_workflows/.github/workflows/keepalive.yml@1d54d36182bfc2058363dba6245978cb657aa49a # v1.1.0
     permissions:
       contents: write

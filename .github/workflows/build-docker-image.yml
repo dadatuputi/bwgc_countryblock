@@ -11,7 +11,7 @@ on:
     paths:
       - 'Dockerfile'
       - 'scripts/**'
-    # Publish semver tags as releases.
+    # A vX.Y.Z tag publishes X, X.Y, X.Y.Z and latest.
     tags: [ 'v*' ]
   # Pull requests get the build and the test suite, but nothing is pushed,
   # scanned or signed: the token is read-only there, and nothing should be
@@ -22,14 +22,22 @@ on:
       - 'scripts/**'
       - 'tests/**'
       - '.github/workflows/build-docker-image.yml'
+  # The nightly rebuild calls this with ref set to the newest release, to
+  # republish that release's tags with current packages.
   workflow_call:
+    inputs:
+      ref:
+        description: Release tag (vX.Y.Z) to build instead of the triggering commit
+        type: string
+        default: ''
   workflow_dispatch:
 
 jobs:
   build:
-    uses: dadatuputi/bwgc_workflows/.github/workflows/build-image.yml@ba3db05fc13164ec7af87552ec32a316a5fa6708 # v1.0.1
+    uses: dadatuputi/bwgc_workflows/.github/workflows/build-image.yml@1d54d36182bfc2058363dba6245978cb657aa49a # v1.1.0
     with:
       test-image: bwgc_countryblock:test
+      ref: ${{ inputs.ref }}
     permissions:
       contents: read
       packages: write
