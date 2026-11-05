@@ -10,10 +10,13 @@ name: Release
 # The first release is v1.0.0 whatever the label.
 #
 # Run it by hand to release whatever is on master that has not been tagged.
+#
+# It runs on the push to master rather than on the closed pull request: the
+# shared build publishes nothing for a pull_request event, and a workflow it
+# calls inherits that event.
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [master]
   workflow_dispatch:
     inputs:
@@ -32,13 +35,10 @@ concurrency:
 
 jobs:
   release:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.pull_request.merged == true &&
-       !contains(github.event.pull_request.labels.*.name, 'release:none'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: read
     outputs:
       tag: ${{ steps.version.outputs.next }}
     steps:
@@ -52,17 +52,23 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BUMP_INPUT: ${{ inputs.bump }}
-          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ "$EVENT" = workflow_dispatch ]; then
             BUMP="$BUMP_INPUT"
-          elif printf '%s' "$LABELS" | grep -q '"release:major"'; then
-            BUMP=major
-          elif printf '%s' "$LABELS" | grep -q '"release:minor"'; then
-            BUMP=minor
           else
-            BUMP=patch
+            # The labels of the pull request this push merged. A direct push
+            # to master has none, and is a patch.
+            LABELS=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+              --jq '[.[] | select(.merged_at != null) | .labels[].name] | join(" ")' || true)
+            echo "Labels: ${LABELS:-none}"
+            case " $LABELS " in
+              *" release:none "*) echo "Labelled release:none; nothing to release."; exit 0 ;;
+              *" release:major "*) BUMP=major ;;
+              *" release:minor "*) BUMP=minor ;;
+              *) BUMP=patch ;;
+            esac
           fi
 
           HEAD=$(git rev-parse HEAD)
