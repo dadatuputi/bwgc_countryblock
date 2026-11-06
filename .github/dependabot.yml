@@ -1,4 +1,5 @@
-# Keeps the pinned actions and the shared bwgc_workflows reference current.
+# Keeps the pinned actions, the shared bwgc_workflows reference and the
+# Alpine base image current.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -15,3 +16,10 @@ updates:
       default-days: 3
       exclude:
         - "dadatuputi/bwgc_workflows*"
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
