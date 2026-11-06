@@ -11,7 +11,7 @@ on:
 
 jobs:
   check-support:
-    uses: dadatuputi/bwgc_workflows/.github/workflows/check-alpine-support.yml@1d54d36182bfc2058363dba6245978cb657aa49a # v1.1.0
+    uses: dadatuputi/bwgc_workflows/.github/workflows/check-alpine-support.yml@38f42c5731178d2fb116ba998b5a9098f0be8310 # v1.1.2
     permissions:
       contents: read
       issues: write
