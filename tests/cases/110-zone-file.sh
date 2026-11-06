@@ -32,5 +32,19 @@ assert_status "$?" "0" "adding subnets already in the set is not an error"
 process_zone_file "$ZONE" YY
 assert_ne "$?" "0" "a failing ipset restore is reported"
 
+printf '1.2.3.0/24\n' > "$ZONE"
+process_zone_file "$ZONE" XX
+assert_eq "$(members)" "1.2.3.0/24 " "a range dropped from the zone file leaves the set"
+
+printf '1.2.3.0/24\n7.7.7.0/24\n' > "$ZONE"
+process_zone_file "$ZONE" XX
+ipset() { if [ "$1" = restore ]; then command ipset restore "${@:2}" >/dev/null 2>&1; return 1; fi; command ipset "$@"; }
+printf '8.8.8.0/24\n' > "$ZONE"
+process_zone_file "$ZONE" XX
+assert_ne "$?" "0" "a refused file is reported"
+unset -f ipset
+assert_eq "$(members)" "1.2.3.0/24 7.7.7.0/24 " "and the set keeps its previous ranges"
+ipset list XX-new >/dev/null 2>&1 && fail "no staging set is left behind" || pass "no staging set is left behind"
+
 rm -f "$ZONE"
 ipset destroy XX

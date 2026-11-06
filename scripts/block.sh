@@ -91,6 +91,11 @@ process_zone_file() {
     # Validate each line, then add all the valid ones with a single
     # "ipset restore". Running "ipset add" per line forks a process per
     # subnet, which is slow for countries with thousands of them.
+    local next="${country}-new"
+    if ! ipset -exist create "$next" hash:net || ! ipset flush "$next"; then
+        echo "Error: cannot create the staging set $next" >> $LOG
+        return 1
+    fi
     local line
     while IFS= read -r line || [[ -n "$line" ]]; do
         # A subnet contains no whitespace, so strip all of it, including the
@@ -101,16 +106,21 @@ process_zone_file() {
         [[ -z "$line" || "$line" == \#* ]] && continue
 
         if validate_ip_range "$line"; then
-            echo "add $country $line"
+            echo "add $next $line"
         else
             echo "Invalid IP range found: $line" >> $LOG
         fi
     done < "$zonefile" | ipset restore -exist || {
-        # ipset reports the offending line on stderr. Lines before it were
-        # still added.
-        echo "Error adding IP ranges from $zonefile to set $country" >> $LOG
+        echo "Error adding IP ranges from $zonefile to set $country; keeping its previous ranges" >> $LOG
+        ipset -! destroy "$next"
         return 1
     }
+    if ! ipset swap "$next" "$country"; then
+        echo "Error replacing set $country with the ranges from $zonefile" >> $LOG
+        ipset -! destroy "$next"
+        return 1
+    fi
+    ipset -! destroy "$next"
 }
 
 # Earlier versions always wrote to iptables-legacy, and forks of this image
@@ -201,6 +211,7 @@ cleanup() {
         # Flush ipset for each country
         ipset -! destroy $country
         ipset -! destroy ${country,,} # include old lower-case ipset name format
+        ipset -! destroy "${country}-new"
         printf "Destroyed ipsets for %b\n" "$country" >> $LOG
     done
 }
