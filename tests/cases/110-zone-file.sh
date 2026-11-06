@@ -32,14 +32,10 @@ assert_status "$?" "0" "adding subnets already in the set is not an error"
 process_zone_file "$ZONE" YY
 assert_ne "$?" "0" "a failing ipset restore is reported"
 
-# The scheduled update replaces the set rather than adding to it: a range
-# the country no longer holds stops being blocked.
 printf '1.2.3.0/24\n' > "$ZONE"
 process_zone_file "$ZONE" XX
 assert_eq "$(members)" "1.2.3.0/24 " "a range dropped from the zone file leaves the set"
 
-# A file ipset refuses leaves the previous ranges in force, and no staging
-# set behind.
 printf '1.2.3.0/24\n7.7.7.0/24\n' > "$ZONE"
 process_zone_file "$ZONE" XX
 ipset() { if [ "$1" = restore ]; then command ipset restore "${@:2}" >/dev/null 2>&1; return 1; fi; command ipset "$@"; }

@@ -91,13 +91,6 @@ process_zone_file() {
     # Validate each line, then add all the valid ones with a single
     # "ipset restore". Running "ipset add" per line forks a process per
     # subnet, which is slow for countries with thousands of them.
-    #
-    # The ranges go into a fresh set that is then swapped for the live one.
-    # Adding to the live set only ever added: a range the country no longer
-    # holds stayed blocked until the container was recreated, and the
-    # scheduled update never removed anything. The swap is atomic, so the
-    # live set is never empty or half filled, and a file ipset refuses
-    # leaves the previous ranges in force.
     local next="${country}-new"
     if ! ipset -exist create "$next" hash:net || ! ipset flush "$next"; then
         echo "Error: cannot create the staging set $next" >> $LOG
@@ -118,8 +111,6 @@ process_zone_file() {
             echo "Invalid IP range found: $line" >> $LOG
         fi
     done < "$zonefile" | ipset restore -exist || {
-        # ipset reports the offending line on stderr. The live set is left
-        # as it was.
         echo "Error adding IP ranges from $zonefile to set $country; keeping its previous ranges" >> $LOG
         ipset -! destroy "$next"
         return 1
@@ -220,7 +211,7 @@ cleanup() {
         # Flush ipset for each country
         ipset -! destroy $country
         ipset -! destroy ${country,,} # include old lower-case ipset name format
-        ipset -! destroy "${country}-new" # a staging set left by a crashed update
+        ipset -! destroy "${country}-new"
         printf "Destroyed ipsets for %b\n" "$country" >> $LOG
     done
 }
