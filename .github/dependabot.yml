@@ -17,9 +17,6 @@ updates:
       exclude:
         - "dadatuputi/bwgc_workflows*"
 
-  # The Dockerfile pins an Alpine branch (alpine:3.24). Security patches
-  # within it arrive through the nightly rebuild; this proposes the next
-  # branch (3.25 and on) as a reviewable pull request.
   - package-ecosystem: docker
     directory: /
     schedule:
