@@ -1,4 +1,5 @@
-# Keeps the pinned actions and the shared bwgc_workflows reference current.
+# Keeps the pinned actions, the shared bwgc_workflows reference and the
+# Alpine base image current.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -15,3 +16,13 @@ updates:
       default-days: 3
       exclude:
         - "dadatuputi/bwgc_workflows*"
+
+  # The Dockerfile pins an Alpine branch (alpine:3.24). Security patches
+  # within it arrive through the nightly rebuild; this proposes the next
+  # branch (3.25 and on) as a reviewable pull request.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 3
