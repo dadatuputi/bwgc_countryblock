@@ -5,6 +5,7 @@
 #   ./tests/run-tests.sh            build the image and run every case
 #   ./tests/run-tests.sh idempot    run only cases matching "idempot"
 #   BWGC_IMAGE=... ./tests/run-tests.sh
+#   TEST_BACKENDS=iptables-legacy ./tests/run-tests.sh   test only the listed backends
 #
 # These run inside the image with --cap-add NET_ADMIN. The container has its own
 # network namespace, so the real iptables commands are exercised against real
@@ -27,6 +28,7 @@ fi
 
 docker run --rm --cap-add NET_ADMIN \
 	-e FILTER="$FILTER" \
+	-e TEST_BACKENDS="${TEST_BACKENDS:-}" \
 	-v "$ROOT/tests:/tests:ro" \
 	-v "$ROOT/scripts/block.sh:/block.sh:ro" \
 	--entrypoint bash "$IMAGE" /tests/in-container.sh

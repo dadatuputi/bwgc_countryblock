@@ -25,14 +25,22 @@ assert_not_contains() {
 
 # Firewall helpers. Every case starts from an empty ruleset; the container has
 # its own network namespace, so this cannot touch the host.
-IPT=iptables-legacy
+# IPT is the backend under test, set by in-container.sh.
+IPT=${IPT:-iptables-nft}
+
+backend_usable() {
+  command -v "$1" >/dev/null 2>&1 && "$1" -S >/dev/null 2>&1
+}
 
 jumps()  { $IPT -S INPUT 2>/dev/null | grep -c "j $CHAIN_NAME"; }
 chains() { $IPT -S 2>/dev/null | grep -c "^-N $CHAIN_NAME"; }
 
 reset_fw() {
-  $IPT -F 2>/dev/null || true
-  $IPT -X 2>/dev/null || true
+  for _b in iptables-nft iptables-legacy; do
+    backend_usable "$_b" || continue
+    $_b -F 2>/dev/null || true
+    $_b -X 2>/dev/null || true
+  done
   ipset destroy 2>/dev/null || true
 }
 

@@ -26,8 +26,15 @@ detect_iptables() {
             return
         fi
     done
-    # No Docker chains in either backend; fall back rather than guess.
-    printf 'iptables-legacy'
+    # No Docker chains in either backend; take the first one the kernel accepts.
+    for candidate in iptables-nft iptables-legacy; do
+        if command -v "$candidate" >/dev/null 2>&1 \
+           && "$candidate" -S >/dev/null 2>&1; then
+            printf '%s' "$candidate"
+            return
+        fi
+    done
+    printf 'iptables-nft'
 }
 
 IPTABLES=$(detect_iptables)
