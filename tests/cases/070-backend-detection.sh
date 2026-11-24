@@ -13,9 +13,7 @@ IPTABLES=iptables-legacy
 assert_eq "$(detect_iptables)" "iptables-legacy" "override works for legacy too"
 
 # With no override, the backend holding Docker's chains is chosen. This
-# container has none in either, so detection falls back to the first backend
-# the kernel accepts, nft first. Legacy would fail outright on kernels built
-# without it.
+# container has none, so detection falls back to the first usable backend.
 unset IPTABLES
 DETECTED=$(detect_iptables)
 if backend_usable iptables-nft; then

@@ -25,13 +25,9 @@ assert_not_contains() {
 
 # Firewall helpers. Every case starts from an empty ruleset; the container has
 # its own network namespace, so this cannot touch the host.
-#
-# IPT is the backend under test, set by in-container.sh, which runs the suite
-# once per backend the kernel accepts.
+# IPT is the backend under test, set by in-container.sh.
 IPT=${IPT:-iptables-nft}
 
-# A backend is usable when the kernel lets it list the filter table. Kernels
-# without legacy xtables (Ubuntu 26.04 GitHub runners) refuse iptables-legacy.
 backend_usable() {
   command -v "$1" >/dev/null 2>&1 && "$1" -S >/dev/null 2>&1
 }

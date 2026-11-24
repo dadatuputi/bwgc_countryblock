@@ -3,9 +3,7 @@ set -u
 CHAIN_NAME=countryblock
 . /tests/lib-assert.sh
 
-# Run the whole suite against every backend the kernel accepts. Hosts use
-# either, and a runner may lack legacy xtables entirely. Set TEST_BACKENDS to
-# force a list; a forced backend the kernel refuses fails the run.
+# Run the suite once per usable backend; TEST_BACKENDS forces a list.
 BACKENDS=${TEST_BACKENDS:-}
 if [ -z "$BACKENDS" ]; then
 	for b in iptables-nft iptables-legacy; do
@@ -34,8 +32,7 @@ for IPT in $BACKENDS; do
 			case "$name" in *"$FILTER"*) ;; *) continue ;; esac
 		fi
 		printf '%s\n' "$name"
-		# block.sh detects the backend by itself; pin it to the one under test.
-		# Cases that exercise detection unset this.
+		# Pin block.sh to the backend under test.
 		export IPTABLES="$IPT"
 		# shellcheck disable=SC1090
 		. "$case_file"

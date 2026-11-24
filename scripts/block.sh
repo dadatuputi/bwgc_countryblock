@@ -26,11 +26,7 @@ detect_iptables() {
             return
         fi
     done
-    # No Docker chains in either backend (Docker not started yet, run with
-    # "iptables": false, or using its native nftables firewall backend). Take
-    # the first backend the kernel accepts, nft first: it is the default on
-    # current distributions, and recent kernels (Ubuntu 26.04 for one) no
-    # longer load legacy xtables, so every legacy command there fails.
+    # No Docker chains in either backend; take the first one the kernel accepts.
     for candidate in iptables-nft iptables-legacy; do
         if command -v "$candidate" >/dev/null 2>&1 \
            && "$candidate" -S >/dev/null 2>&1; then

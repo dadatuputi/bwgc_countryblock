@@ -5,16 +5,11 @@
 #   ./tests/run-tests.sh            build the image and run every case
 #   ./tests/run-tests.sh idempot    run only cases matching "idempot"
 #   BWGC_IMAGE=... ./tests/run-tests.sh
+#   TEST_BACKENDS=iptables-legacy ./tests/run-tests.sh   test only the listed backends
 #
 # These run inside the image with --cap-add NET_ADMIN. The container has its own
 # network namespace, so the real iptables commands are exercised against real
 # tables without any possibility of touching the host's firewall.
-#
-# The suite runs once per backend the kernel accepts (iptables-nft, then
-# iptables-legacy). Kernels that no longer load legacy xtables on demand need
-# "modprobe ip_tables iptable_filter" on the host for the legacy run; without
-# it that run is skipped. TEST_BACKENDS="iptables-legacy" forces a list and
-# fails if the kernel refuses one.
 #
 # bash, not sh: block.sh uses [[ ]], local -a and ${var,,}, so sourcing it from
 # busybox sh fails at parse time.
