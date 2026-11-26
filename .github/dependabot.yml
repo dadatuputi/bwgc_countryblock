@@ -7,6 +7,8 @@ updates:
     schedule:
       interval: weekly
     groups:
+      bwgc-workflows:
+        patterns: ["dadatuputi/bwgc_workflows*"]
       actions:
         patterns: ["*"]
     # Third-party action releases wait three days before Dependabot proposes
